@@ -40,6 +40,7 @@ services:
     environment:
       Telebot_Telegram_Token: ${Telebot_Telegram_Token}
       Telebot_Fluentd_Url: http://fluentd:8090/app.log
+      Telebot_Startup_Wait_Ms: 30000 
     ports:
       - 9091:80
 

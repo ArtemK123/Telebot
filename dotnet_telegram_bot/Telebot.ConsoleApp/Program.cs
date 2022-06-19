@@ -7,6 +7,7 @@ using Telegram.Bot.Types.Enums;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using OpenTelemetry.Metrics;
 
 var builder = WebApplication.CreateBuilder();
@@ -46,39 +47,56 @@ public static class BotMeter
 
 public class TelegramBotHostedService : IHostedService, IDisposable
 {
-    private bool _isActive = false;
     private readonly HttpClient _httpClient;
+    private readonly ILogger<TelegramBotHostedService> _logger;
     private readonly ConcurrentBag<int> _processedMessageIds = new ConcurrentBag<int>();
 
-    public TelegramBotHostedService(IHttpClientFactory httpClientFactory)
+    public TelegramBotHostedService(IHttpClientFactory httpClientFactory, ILogger<TelegramBotHostedService> logger)
     {
         _httpClient = httpClientFactory.CreateClient(nameof(TelegramBotHostedService));
+        _logger = logger;
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
     {
         try
         {
-            var token = ReadEnvironmentVariableOrThrow("Telebot_Telegram_Token");
-            var botClient = new TelegramBotClient(token);
-            var me = await botClient.GetMeAsync(cancellationToken: cancellationToken);
-            Console.WriteLine($"Start listening for @{me.Username}");
-            _isActive = true;
-            while (_isActive)
-            {
-                await HandleNextUpdatesAsync(botClient, cancellationToken);
-            }
+            var waitMs = int.Parse(GetEnvironmentVariableOrThrow("Telebot_Startup_Wait_Ms"));
+            _logger.LogInformation("Telegram bot is starting up");    
+            _logger.LogInformation($"Waiting {waitMs / 1000} seconds while infrastructure is setting up");    
+#pragma warning disable CS4014
+            Task.Delay(waitMs, cancellationToken)
+                .ContinueWith(async _ =>
+                {
+                    var token = GetEnvironmentVariableOrThrow("Telebot_Telegram_Token");
+                    var botClient = new TelegramBotClient(token);
+                    var me = await botClient.GetMeAsync(cancellationToken: cancellationToken);
+                    _logger.LogInformation($"Start listening for @{me.Username}");
+                    while (true)
+                    {
+                        try
+                        {
+                            await HandleNextUpdatesAsync(botClient, cancellationToken);
+                        }
+                        catch (Exception exception)
+                        {
+                            _logger.LogError(exception, "Error is occured");
+                        }
+                    }
+                }, cancellationToken);
+#pragma warning restore CS4014
         }
         catch (Exception exception)
         {
-            Console.WriteLine(exception);
+            _logger.LogError(exception, "Error is occured");
         }
+
+        return Task.CompletedTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        _isActive = false;
-        Console.WriteLine("Stopped telegram bot");
+        _logger.LogInformation("Telegram bot is stopped");
         return Task.CompletedTask;
     }
 
@@ -102,13 +120,13 @@ public class TelegramBotHostedService : IHostedService, IDisposable
             var chatId = update.Message!.Chat.Id;
             var messageText = update.Message.Text;
 
-            Console.WriteLine($"Received a '{messageText}' message in chat {chatId}.");
+            _logger.LogInformation($"Received a '{messageText}' message in chat {chatId}.");
             BotMeter.IncrementProcessedMessagesCounter();
-            var request = new HttpRequestMessage(HttpMethod.Post, ReadEnvironmentVariableOrThrow("Telebot_Fluentd_Url"));
+            var request = new HttpRequestMessage(HttpMethod.Post, GetEnvironmentVariableOrThrow("Telebot_Fluentd_Url"));
             request.Content = new StringContent($"json={JsonSerializer.Serialize(new { MessageId = update.Id, ChatId = chatId, MessageText = update.Message.Text })}");
             request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/x-www-form-urlencoded");
             var response = await _httpClient.SendAsync(request, cancellationToken);
-            Console.WriteLine($"Sent a message to a Fluentd via HTTP Api. Response: {response.ReasonPhrase}");
+            _logger.LogInformation($"Sent a message to a Fluentd via HTTP Api. Response: {response.ReasonPhrase}");
 
             // Echo received message text
             await botClient.SendTextMessageAsync(
@@ -118,6 +136,6 @@ public class TelegramBotHostedService : IHostedService, IDisposable
         }
     }
 
-    private string ReadEnvironmentVariableOrThrow(string variableName)
+    private string GetEnvironmentVariableOrThrow(string variableName)
         => Environment.GetEnvironmentVariable(variableName) ?? throw new ApplicationException($"Can not read environment variable {variableName}");
 }
