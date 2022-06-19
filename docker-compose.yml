@@ -1,0 +1,10 @@
+version: "3"
+
+services:
+  fluentd:
+    build: ./fluentd
+    ports:
+      - 8090:8090
+      - 8090:8090/udp
+    volumes:
+      - ./fluentd/log:/fluentd/log
