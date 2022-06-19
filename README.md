@@ -33,5 +33,6 @@ Telegram bot + EFK logging + Prometeous/Grafana monitoring
   6. ElasticSearch recieves, stores and indexes the message
   7. Asp.Net Core service increments a number of received requests
   8. Asp.Net Core service sends back the message to a Telegram chat
-* Asp.Net Core exposes the `/metrics` API. It returns current runtime metrics (CPU load, heap memory usage etc) and application metrics (a total number of recieved messages in the chat)
+* Asp.Net Core exposes the `/metrics` API. It returns current runtime metrics (CPU load, heap memory usage etc) and application metrics (total number of recieved messages in the chat)
 * Prometheus periodically pulls the `/metrics` API and saves the metrics to own database
+* When started via `docker-compose up`, fluentd service does not become available immediatly. Telegram bot depends on it and won't work properly until fluentd is ready. In order to prevent runtime exceptions, the following hack was made - telegram bot will wait some time (controlled by the env variable `Telebot_Startup_Wait_Ms`) before starting up
