@@ -8,3 +8,11 @@ services:
       - 8090:8090/udp
     volumes:
       - ./fluentd/log:/fluentd/log
+  
+  telegram-bot:
+    build: ./dotnet_telegram_bot
+    depends_on:
+      - fluentd
+    environment:
+      Telebot_Telegram_Token: ${Telebot_Telegram_Token}
+      Telebot_Fluentd_Url: http://fluentd:8090/app.log

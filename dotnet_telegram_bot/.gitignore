@@ -2,4 +2,5 @@
 .vscode/
 bin/
 obj/
+out/
 telegram-token.txt
